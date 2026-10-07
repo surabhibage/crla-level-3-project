@@ -1,6 +1,3 @@
 import pandas as pd 
 df_names = pd.read_csv("names.csv")
-
-print(df_names)
-
-df_names.head()
+print(df_names.head())
