@@ -1,0 +1,4 @@
+import pandas as pd 
+df_names = pd.read_csv("names.csv")
+
+print(df_names)
