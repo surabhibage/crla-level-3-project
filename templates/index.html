@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Peer Connections - Candidate Observation Form</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', path='images/logo_icon.png') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
+    <script>
+        window.ROOM_ASSIGNMENTS = {{ assignments_json | safe }};
+        window.OBSERVED_NAMES = {{ observed_names | tojson | safe }};
+    </script>
+    <script src="{{ url_for('static', path='script.js') }}" defer></script>
+</head>
+<body>
+    <div class="page-wrapper">
+        <!-- Brand Header: Centered Geometric Icon over Logo Text -->
+        <header class="app-header-centered">
+            <div class="brand-hero">
+                <img src="{{ url_for('static', path='images/logo_icon.png') }}" alt="Peer Connections Icon" class="brand-icon">
+                <img src="{{ url_for('static', path='images/logo_text.png') }}" alt="Peer Connections" class="brand-text">
+            </div>
+            {% if observations %}
+            <div class="stats-badge-wrap">
+                <span class="stats-pill">{{ observations|length }} Evaluation{% if observations|length > 1 %}s{% endif %} Logged</span>
+                {% if pending_count > 0 %}
+                <span class="stats-pill-pending">{{ pending_count }} Ready for Final Submit</span>
+                {% endif %}
+            </div>
+            {% endif %}
+        </header>
+
+        {% if success_msg %}
+        <div class="alert-success">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.707l-4.5 4.5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L8.5 10.586l3.793-3.793a1 1 0 011.414 1.414z" fill="currentColor"/>
+            </svg>
+            <span>{{ success_msg }}</span>
+        </div>
+        {% endif %}
+
+        {% if error_msg %}
+        <div class="alert-error">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <path d="M10 18a8 8 0 100-16 8 8 0 000 16zM9 9a1 1 0 012 0v3a1 1 0 11-2 0V9zm1-4a1 1 0 100 2 1 1 0 000-2z" fill="currentColor"/>
+            </svg>
+            <span>{{ error_msg }}</span>
+        </div>
+        {% endif %}
+
+        <form action="/submit" method="post" class="observation-form" id="evaluationForm">
+            <!-- Hidden field for editing existing observation -->
+            <input type="hidden" id="editIdInput" name="edit_id" value="">
+
+            <!-- SECTION 1: Observer Details -->
+            <div class="section-divider">
+                <span class="section-tag">Section 1</span>
+                <h2>Observer Details (Remains Fixed)</h2>
+            </div>
+
+            <section class="form-card gform-card">
+                <!-- Question: Observer Name -->
+                <div class="form-group mb-5">
+                    <label for="observerName" class="gform-label">
+                        Your name <span class="required">*</span>
+                    </label>
+                    <input 
+                        type="text" 
+                        id="observerName" 
+                        name="observer_name" 
+                        class="gform-input" 
+                        placeholder="Short answer text" 
+                        value="{{ last_observer }}"
+                        required
+                    >
+                </div>
+
+                <!-- Question: Which room are you observing? -->
+                <div class="form-group mb-5">
+                    <label class="gform-label">
+                        Which room are you observing? <span class="required">*</span>
+                    </label>
+                    <div class="room-options-list">
+                        <label class="room-radio-item" for="room-tinker">
+                            <input 
+                                type="radio" 
+                                id="room-tinker" 
+                                name="room" 
+                                value="Tinker Toys" 
+                                {% if last_room == 'Tinker Toys' or not last_room %}checked{% endif %}
+                                required
+                            >
+                            <span class="room-radio-dot"></span>
+                            <span class="room-radio-text">Tinker Toys</span>
+                        </label>
+
+                        <label class="room-radio-item" for="room-mini">
+                            <input 
+                                type="radio" 
+                                id="room-mini" 
+                                name="room" 
+                                value="Mini Lessons" 
+                                {% if last_room == 'Mini Lessons' %}checked{% endif %}
+                            >
+                            <span class="room-radio-dot"></span>
+                            <span class="room-radio-text">Mini Lessons</span>
+                        </label>
+
+                        <label class="room-radio-item" for="room-scenarios">
+                            <input 
+                                type="radio" 
+                                id="room-scenarios" 
+                                name="room" 
+                                value="Scenarios" 
+                                {% if last_room == 'Scenarios' %}checked{% endif %}
+                            >
+                            <span class="room-radio-dot"></span>
+                            <span class="room-radio-text">Scenarios</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Question: What round are you observing? -->
+                <div class="form-group">
+                    <label class="gform-label">
+                        What round are you observing? <span class="required">*</span>
+                    </label>
+                    <div class="room-options-list horizontal-options">
+                        <label class="room-radio-item" for="round-1">
+                            <input 
+                                type="radio" 
+                                id="round-1" 
+                                name="round" 
+                                value="Round 1" 
+                                {% if last_round == 'Round 1' or not last_round %}checked{% endif %}
+                                required
+                            >
+                            <span class="room-radio-dot"></span>
+                            <span class="room-radio-text">Round 1</span>
+                        </label>
+
+                        <label class="room-radio-item" for="round-2">
+                            <input 
+                                type="radio" 
+                                id="round-2" 
+                                name="round" 
+                                value="Round 2" 
+                                {% if last_round == 'Round 2' %}checked{% endif %}
+                            >
+                            <span class="room-radio-dot"></span>
+                            <span class="room-radio-text">Round 2</span>
+                        </label>
+
+                        <label class="room-radio-item" for="round-3">
+                            <input 
+                                type="radio" 
+                                id="round-3" 
+                                name="round" 
+                                value="Round 3" 
+                                {% if last_round == 'Round 3' %}checked{% endif %}
+                            >
+                            <span class="room-radio-dot"></span>
+                            <span class="room-radio-text">Round 3</span>
+                        </label>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SECTION 2: Candidate Assessment (One Continuous Block) -->
+            <div class="section-divider" id="assessmentSectionHeader">
+                <span class="section-tag">Section 2</span>
+                <h2>Candidate Assessment</h2>
+            </div>
+
+            <!-- Edit Notice Banner (Shown dynamically when editing) -->
+            <div id="editingBanner" class="editing-banner" style="display: none;">
+                <div class="editing-text">
+                    <strong>Editing Mode:</strong> Updating observation for <span id="editingCandidateName"></span>
+                </div>
+                <button type="button" id="cancelEditBtn" class="btn-cancel-edit">Cancel Edit</button>
+            </div>
+
+            <section class="form-card continuous-assessment-card">
+                <!-- Dynamically Filtered Candidate Picker -->
+                <div class="form-group assessment-item">
+                    <div class="label-with-hint">
+                        <label for="candidateSelect" class="gform-label">
+                            Candidate being observed <span class="required">*</span>
+                        </label>
+                        <span id="roomFilterHint" class="filter-hint"></span>
+                    </div>
+                    <select id="candidateSelect" name="candidate" class="candidate-select" required>
+                        <option value="" disabled selected>-- Select a candidate in this room --</option>
+                    </select>
+                </div>
+
+                <!-- Question 1: Team work? (4 Stars with Half-Star Support) -->
+                <div class="assessment-item">
+                    <div class="question-header-row">
+                        <h3 class="assessment-question-title">Team work? <span class="required">*</span></h3>
+                        <span class="score-display"></span>
+                    </div>
+                    <div class="star-rating-container">
+                        <div class="star-rating-widget" data-rating-id="teamwork">
+                            <input type="hidden" id="teamworkInput" name="teamwork" value="" required>
+                            {% for i in [1, 2, 3, 4] %}
+                            <div class="star-slot" data-star-index="{{ i }}">
+                                <span class="star-num-label">{{ i }}</span>
+                                <div class="star-half star-half-left" data-value="{{ i - 0.5 }}" title="{{ i - 0.5 }} stars"></div>
+                                <div class="star-half star-half-right" data-value="{{ i }}.0" title="{{ i }} stars"></div>
+                                <div class="star-visual">
+                                    <svg class="star-svg star-bg" viewBox="0 0 24 24">
+                                        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                                    </svg>
+                                    <div class="star-fill-wrap">
+                                        <svg class="star-svg star-fg" viewBox="0 0 24 24">
+                                            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                                        </svg>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Question 2: Initiative/Problem Solving (4 Stars with Half-Star & Nay/Yay) -->
+                <div class="assessment-item">
+                    <div class="question-header-row">
+                        <h3 class="assessment-question-title">Initiative/Problem Solving <span class="required">*</span></h3>
+                        <span class="score-display"></span>
+                    </div>
+                    <div class="likert-stars-wrapper">
+                        <span class="likert-anchor anchor-left">Nay</span>
+                        <div class="star-rating-widget" data-rating-id="initiative">
+                            <input type="hidden" id="initiativeInput" name="initiative" value="" required>
+                            {% for i in [1, 2, 3, 4] %}
+                            <div class="star-slot" data-star-index="{{ i }}">
+                                <span class="star-num-label">{{ i }}</span>
+                                <div class="star-half star-half-left" data-value="{{ i - 0.5 }}" title="{{ i - 0.5 }} stars"></div>
+                                <div class="star-half star-half-right" data-value="{{ i }}.0" title="{{ i }} stars"></div>
+                                <div class="star-visual">
+                                    <svg class="star-svg star-bg" viewBox="0 0 24 24">
+                                        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                                    </svg>
+                                    <div class="star-fill-wrap">
+                                        <svg class="star-svg star-fg" viewBox="0 0 24 24">
+                                            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                                        </svg>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <span class="likert-anchor anchor-right">Yay</span>
+                    </div>
+                </div>
+
+                <!-- Question 3: Personal Representation (4 Stars with Half-Star & Nay/Yay) -->
+                <div class="assessment-item">
+                    <div class="question-header-row">
+                        <h3 class="assessment-question-title">Personal Representation <span class="required">*</span></h3>
+                        <span class="score-display"></span>
+                    </div>
+                    <div class="likert-stars-wrapper">
+                        <span class="likert-anchor anchor-left">Nay</span>
+                        <div class="star-rating-widget" data-rating-id="personal_rep">
+                            <input type="hidden" id="personalRepInput" name="personal_rep" value="" required>
+                            {% for i in [1, 2, 3, 4] %}
+                            <div class="star-slot" data-star-index="{{ i }}">
+                                <span class="star-num-label">{{ i }}</span>
+                                <div class="star-half star-half-left" data-value="{{ i - 0.5 }}" title="{{ i - 0.5 }} stars"></div>
+                                <div class="star-half star-half-right" data-value="{{ i }}.0" title="{{ i }} stars"></div>
+                                <div class="star-visual">
+                                    <svg class="star-svg star-bg" viewBox="0 0 24 24">
+                                        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                                    </svg>
+                                    <div class="star-fill-wrap">
+                                        <svg class="star-svg star-fg" viewBox="0 0 24 24">
+                                            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                                        </svg>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <span class="likert-anchor anchor-right">Yay</span>
+                    </div>
+                </div>
+
+                <!-- Would you like to work with them? -->
+                <div class="assessment-item">
+                    <label class="gform-label">Would you like to work with them?</label>
+                    <div class="toggle-group">
+                        <label class="radio-pill">
+                            <input type="radio" id="workWithYes" name="work_with" value="Yes" checked>
+                            <span>Yes</span>
+                        </label>
+                        <label class="radio-pill">
+                            <input type="radio" id="workWithMaybe" name="work_with" value="Maybe">
+                            <span>Maybe</span>
+                        </label>
+                        <label class="radio-pill">
+                            <input type="radio" id="workWithNo" name="work_with" value="No">
+                            <span>No</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Observer Notes / Comments -->
+                <div class="assessment-item no-border">
+                    <label for="commentsInput" class="gform-label">
+                        Observer Notes / Comments <span class="optional">(Optional)</span>
+                    </label>
+                    <textarea id="commentsInput" name="comments" rows="3" placeholder="Add specific feedback or observations..."></textarea>
+                </div>
+
+                <!-- Submit Button inside continuous card -->
+                <div class="form-actions">
+                    <button type="submit" id="submitFormBtn" class="btn-submit">
+                        Save Candidate Evaluation (Draft)
+                    </button>
+                </div>
+            </section>
+        </form>
+
+        <!-- Observations History Section with Separate Tables for Each Round -->
+        {% if observations %}
+        <section class="history-section">
+            <div class="history-header-bar">
+                <div>
+                    <h2>Recorded Observations ({{ observations|length }})</h2>
+                    <p class="history-subtitle">Review and edit your evaluations below before making the final submission.</p>
+                </div>
+                <div class="round-tabs-nav">
+                    <button type="button" class="round-tab-btn active" data-target="all">All Rounds</button>
+                    {% for round_title in ['Round 1', 'Round 2', 'Round 3'] %}
+                        {% if observations_by_round[round_title]|length > 0 %}
+                        <button type="button" class="round-tab-btn" data-target="{{ round_title }}">
+                            {{ round_title }} ({{ observations_by_round[round_title]|length }})
+                        </button>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="round-tables-container">
+                {% for round_title in ['Round 1', 'Round 2', 'Round 3'] %}
+                {% set round_list = observations_by_round[round_title] %}
+                {% if round_list %}
+                <div class="round-table-card" data-round-id="{{ round_title }}">
+                    <div class="round-card-header">
+                        <div class="round-title-group">
+                            <span class="badge-round-lg">{{ round_title }}</span>
+                            <span class="round-count">{{ round_list|length }} evaluation{% if round_list|length != 1 %}s{% endif %}</span>
+                        </div>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table class="obs-table">
+                            <thead>
+                                <tr>
+                                    <th>Candidate</th>
+                                    <th>Room</th>
+                                    <th>Observer</th>
+                                    <th>Teamwork</th>
+                                    <th>Initiative</th>
+                                    <th>Personal Rep</th>
+                                    <th>Work With?</th>
+                                    <th>Notes</th>
+                                    <th>Status</th>
+                                    <th style="text-align: right;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for obs in round_list %}
+                                <tr>
+                                    <td class="font-semibold">{{ obs.candidate }}</td>
+                                    <td><span class="badge-room">{{ obs.room }}</span></td>
+                                    <td>{{ obs.observer_name }}</td>
+                                    <td>{{ obs.teamwork }} ★</td>
+                                    <td>{{ obs.initiative }} ★</td>
+                                    <td>{{ obs.personal_rep }} ★</td>
+                                    <td>
+                                        <span class="pill-badge pill-{{ obs.work_with|lower }}">
+                                            {{ obs.work_with }}
+                                        </span>
+                                    </td>
+                                    <td class="obs-notes">{{ obs.comments or '—' }}</td>
+                                    <td>
+                                        {% if obs.submitted_to_sheets %}
+                                        <span class="status-badge status-synced">✓ In Sheets</span>
+                                        {% else %}
+                                        <span class="status-badge status-draft">Draft</span>
+                                        {% endif %}
+                                    </td>
+                                    <td style="text-align: right; white-space: nowrap;">
+                                        <!-- Edit button triggers inline edit -->
+                                        <button 
+                                            type="button" 
+                                            class="btn-action btn-edit"
+                                            title="Edit this observation"
+                                            data-id="{{ obs.id }}"
+                                            data-candidate="{{ obs.candidate }}"
+                                            data-observer="{{ obs.observer_name }}"
+                                            data-room="{{ obs.room }}"
+                                            data-round="{{ obs.round }}"
+                                            data-teamwork="{{ obs.teamwork }}"
+                                            data-initiative="{{ obs.initiative }}"
+                                            data-personal-rep="{{ obs.personal_rep }}"
+                                            data-work-with="{{ obs.work_with }}"
+                                            data-comments="{{ obs.comments }}"
+                                        >
+                                            ✏️ Edit
+                                        </button>
+
+                                        <!-- Delete button -->
+                                        <form action="/delete/{{ obs.id }}" method="post" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete the evaluation for {{ obs.candidate }}?');">
+                                            <button type="submit" class="btn-action btn-delete" title="Delete observation">
+                                                🗑️
+                                            </button>
+                                        </form>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                {% endif %}
+                {% endfor %}
+            </div>
+
+            <!-- FINAL SUBMIT CARD TO GOOGLE SHEETS -->
+            <div class="final-submit-card">
+                <div class="final-submit-info">
+                    <h3>Finalize & Send to Google Sheets</h3>
+                    <p>Once you finish observing candidates across all three rounds, click below to permanently push all draft evaluations into the central Google Sheet.</p>
+                </div>
+                <form action="/final-submit" method="post" onsubmit="return confirm('Send all {{ pending_count }} draft observation(s) to Google Sheets now?');">
+                    <button type="submit" class="btn-final-submit" {% if pending_count == 0 %}disabled{% endif %}>
+                        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                            <path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" fill="currentColor"/>
+                        </svg>
+                        Final Submit All ({{ pending_count }}) to Google Sheets
+                    </button>
+                </form>
+            </div>
+        </section>
+        {% endif %}
+    </div>
+</body>
+</html>

@@ -1,0 +1,12 @@
+# Google Service Account Credentials
+credentials.json
+
+# Environment variables
+.env
+
+# Python cache files
+__pycache__/
+*.pyc
+
+# Names list 
+names.csv
