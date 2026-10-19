@@ -33,6 +33,10 @@
             {% endif %}
         </header>
 
+        {% if names_error %}
+        <div class="alert-error" role="alert">{{ names_error }}</div>
+        {% endif %}
+
         {% if success_msg %}
         <div class="alert-success">
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none">

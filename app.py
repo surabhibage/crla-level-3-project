@@ -4,63 +4,100 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from typing import Optional
 from datetime import datetime
-import pandas as pd
 import os
 import uuid
 import json
-import gspread
-
-# ── Google Sheets Setup ───────────────────────────────────────────────
-# SHEET_NAME = "Peer Connections Candidate Observations"
-
-# def get_sheet():
-#     try:
-#         gc = gspread.service_account(filename="credentials.json")
-#         return gc.open(SHEET_NAME).sheet1
-#     except Exception as e:
-#         print("Google Sheets connection error:", e)
-#         return None
-import os
-import json
+import logging
+from time import monotonic
+from threading import Lock
 import gspread
 from google.oauth2.service_account import Credentials
 from dotenv import load_dotenv
 
 load_dotenv()
+logger = logging.getLogger(__name__)
+
+
+def get_spreadsheet():
+    credentials_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
+    credentials = Credentials.from_service_account_info(
+        credentials_info,
+        scopes=["https://www.googleapis.com/auth/spreadsheets"],
+    )
+    return gspread.authorize(credentials).open_by_key(os.environ["GOOGLE_SHEET_ID"])
+
 
 def get_sheet():
-    try:
-        credentials_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
+    title = os.environ["GOOGLE_OBSERVATIONS_SHEET_NAME"].strip()
+    if not title:
+        raise ValueError("GOOGLE_OBSERVATIONS_SHEET_NAME must not be empty")
+    interviewees_title = os.environ["GOOGLE_INTERVIEWEES_SHEET_NAME"].strip()
+    if title == interviewees_title:
+        raise ValueError("Observations and interviewees must use different tabs")
+    return get_spreadsheet().worksheet(title)
 
-        credentials = Credentials.from_service_account_info(credentials_info, scopes=["https://www.googleapis.com/auth/spreadsheets"])
 
-        gc = gspread.authorize(credentials)
-
-        sheet = gc.open_by_key(os.environ["GOOGLE_SHEET_ID"]).sheet1
-
-        return sheet
-
-    except Exception as e:
-        print(f"Error connecting to Google Sheets: {e}")
-        raise
-
-# ── App Setup ───────────────────────────────────────────────
 app = FastAPI()
-
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# Load candidate list from names.csv
+CANDIDATE_CACHE_SECONDS = 60
+_candidate_cache = {"key": None, "names": [], "error": None, "expires_at": 0}
+_candidate_cache_lock = Lock()
+
+
+def parse_candidate_rows(rows):
+    required = ("Interviewee First Name", "Interviewee Last Name")
+    if not rows:
+        raise ValueError("Interviewees tab is empty")
+    headers = [str(value).strip() for value in rows[0]]
+    if any(headers.count(header) != 1 for header in required):
+        raise ValueError("Interviewees tab requires unique Interviewee First Name and Interviewee Last Name headers")
+    first_index, last_index = (headers.index(header) for header in required)
+    names = set()
+    for row in rows[1:]:
+        first = str(row[first_index]).strip() if first_index < len(row) else ""
+        last = str(row[last_index]).strip() if last_index < len(row) else ""
+        name = f"{first} {last}".strip()
+        if name:
+            names.add(name)
+    return sorted(names)
+
+
+def candidate_data():
+    # Throttle retries as well as successful reads; never use CSV or sample names.
+    key = (os.getenv("GOOGLE_SHEET_ID"), os.getenv("GOOGLE_INTERVIEWEES_SHEET_NAME"))
+    with _candidate_cache_lock:
+        if _candidate_cache["key"] != key:
+            _candidate_cache.update(key=key, names=[], error=None, expires_at=0)
+        if monotonic() >= _candidate_cache["expires_at"]:
+            try:
+                title = (key[1] or "").strip()
+                if not title:
+                    raise ValueError("GOOGLE_INTERVIEWEES_SHEET_NAME must be set")
+                rows = get_spreadsheet().worksheet(title).get_all_values()
+                names = parse_candidate_rows(rows)
+                _candidate_cache.update(
+                    names=names,
+                    error=None if names else "The interviewees tab contains no candidate names. Add names below the headers.",
+                )
+            except Exception:
+                logger.exception("Unable to load interviewee names from Google Sheets")
+                message = (
+                    "Could not refresh interviewee names. Check the Google Sheets connection, "
+                    "GOOGLE_INTERVIEWEES_SHEET_NAME, and the Interviewee First Name / "
+                    "Interviewee Last Name headers."
+                )
+                if _candidate_cache["names"]:
+                    message += " Showing the last successfully loaded list."
+                _candidate_cache["error"] = message + " Retrying on a page load after 60 seconds."
+            _candidate_cache["expires_at"] = monotonic() + CANDIDATE_CACHE_SECONDS
+        return list(_candidate_cache["names"]), _candidate_cache["error"]
+
+
 def load_candidates():
-    csv_path = "names.csv"
-    if os.path.exists(csv_path):
-        try:
-            df = pd.read_csv(csv_path)
-            names = (df["First Name"].astype(str).str.strip() + " " + df["Last Name"].astype(str).str.strip()).tolist()
-            return sorted(names)
-        except Exception as e:
-            print("Error loading CSV:", e)
-    return ["Candidate 1", "Candidate 2", "Candidate 3"]
+    return candidate_data()[0]
+
 
 # Divide candidates evenly into 3 rotating room groups across 3 rounds
 def get_round_room_assignments():
@@ -117,6 +154,7 @@ async def home(request: Request):
         name="index.html",
         context={
             "assignments_json": json.dumps(assignments),
+            "names_error": candidate_data()[1],
             "observations": observations,
             "observations_by_round": get_observations_by_round(),
             "observed_names": observed_names,
@@ -180,6 +218,7 @@ async def handle_form(
         name="index.html",
         context={
             "assignments_json": json.dumps(assignments),
+            "names_error": candidate_data()[1],
             "observations": observations,
             "observations_by_round": get_observations_by_round(),
             "observed_names": observed_names,
@@ -210,6 +249,7 @@ async def delete_observation(request: Request, obs_id: str):
         name="index.html",
         context={
             "assignments_json": json.dumps(assignments),
+            "names_error": candidate_data()[1],
             "observations": observations,
             "observations_by_round": get_observations_by_round(),
             "observed_names": observed_names,
@@ -230,38 +270,47 @@ async def final_submit(request: Request):
         msg = None
         err = "No pending observations to submit to Google Sheets."
     else:
-        sheet = get_sheet()
-        if not sheet:
+        try:
+            sheet = get_sheet()
+            if sheet is None:
+                raise RuntimeError("Google Sheets connection returned no worksheet")
+            rows_to_insert = []
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            for obs in pending:
+                rows_to_insert.append([
+                    now_str,
+                    obs["candidate"],
+                    obs["round"],
+                    obs["room"],
+                    obs["observer_name"],
+                    obs["teamwork"],
+                    obs["initiative"],
+                    obs["personal_rep"],
+                    obs["work_with"],
+                    obs["comments"]
+                ])
+
+            sheet.append_rows(
+                rows_to_insert,
+                value_input_option="RAW",
+                insert_data_option="INSERT_ROWS",
+                table_range="A1:J",
+            )
+            for obs in pending:
+                obs["submitted_to_sheets"] = True
+
+            msg = f"🎉 Success! All {len(rows_to_insert)} observation(s) have been permanently submitted to Google Sheets!"
+            err = None
+        except Exception as e:
+            print("Failed to connect or submit to Google Sheets:", e)
             msg = None
-            err = "Could not connect to Google Sheets. Please check credentials.json."
-        else:
-            try:
-                rows_to_insert = []
-                now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                for obs in pending:
-                    rows_to_insert.append([
-                        now_str,
-                        obs["candidate"],
-                        obs["round"],
-                        obs["room"],
-                        obs["observer_name"],
-                        obs["teamwork"],
-                        obs["initiative"],
-                        obs["personal_rep"],
-                        obs["work_with"],
-                        obs["comments"]
-                    ])
-
-                sheet.append_rows(rows_to_insert)
-                for obs in pending:
-                    obs["submitted_to_sheets"] = True
-
-                msg = f"🎉 Success! All {len(rows_to_insert)} observation(s) have been permanently submitted to Google Sheets!"
-                err = None
-            except Exception as e:
-                print("Failed to push batch to Google Sheets:", e)
-                msg = None
-                err = f"Failed to submit to Google Sheets: {str(e)}"
+            err = (
+                "Could not connect or submit to Google Sheets. Check GOOGLE_CREDENTIALS "
+                "and GOOGLE_SHEET_ID, check GOOGLE_OBSERVATIONS_SHEET_NAME and "
+                "GOOGLE_INTERVIEWEES_SHEET_NAME, confirm the Google Sheets API is enabled, and "
+                "share the spreadsheet with the service account as an Editor. "
+                "Your drafts have been kept; please try again."
+            )
 
     assignments = get_round_room_assignments()
     observed_names = [obs["candidate"] for obs in observations]
@@ -271,6 +320,7 @@ async def final_submit(request: Request):
         name="index.html",
         context={
             "assignments_json": json.dumps(assignments),
+            "names_error": candidate_data()[1],
             "observations": observations,
             "observations_by_round": get_observations_by_round(),
             "observed_names": observed_names,
